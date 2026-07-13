@@ -1,4 +1,50 @@
 services:
+  volume-init:
+    image: artifact-trust-platform:local
+    build:
+      context: .
+      target: runtime
+    command:
+      - sh
+      - -ec
+      - |
+        install -d -o 0 -g 10000 -m 0755 /mnt/queue
+        install -d -o 10001 -g 10000 -m 0770 /mnt/queue/pending
+        install -d -o 10002 -g 10002 -m 0755 /mnt/queue/running /mnt/queue/completed /mnt/queue/failed
+        install -d -o 10002 -g 10000 -m 0700 /mnt/queue/sources
+        install -d -o 10002 -g 10000 -m 0770 /mnt/results
+        install -d -o 10002 -g 10000 -m 0700 /mnt/private
+        install -d -o 10002 -g 10000 -m 0770 /mnt/public
+    user: "0:0"
+    volumes:
+      - type: volume
+        source: artifact-trust-queue
+        target: /mnt/queue
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-results
+        target: /mnt/results
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-private
+        target: /mnt/private
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-public
+        target: /mnt/public
+        volume:
+          nocopy: true
+    read_only: true
+    network_mode: none
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
   api:
     build:
       context: .
@@ -9,10 +55,30 @@ services:
       ATP_ALLOW_NETWORK: "0"
       ATP_WORK_ROOT: /var/lib/artifact-trust
       ATP_FIXTURES_ROOT: /app/fixtures
+      ATP_PUBLIC_KEY: /var/lib/artifact-trust-public/verification-key.pem
     ports:
       - "127.0.0.1:${ATP_PORT:-8000}:8000"
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     volumes:
-      - artifact-trust-data:/var/lib/artifact-trust
+      - type: volume
+        source: artifact-trust-queue
+        target: /var/lib/artifact-trust
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-results
+        target: /var/lib/artifact-trust/results
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-public
+        target: /var/lib/artifact-trust-public
+        read_only: true
+        volume:
+          nocopy: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
@@ -42,6 +108,10 @@ services:
       context: .
       target: runtime
     command: ["artifact-trust", "worker", "--poll-seconds", "1"]
+    user: "10002:10000"
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     environment:
       ATP_ALLOW_NETWORK: "0"
       ATP_WORK_ROOT: /var/lib/artifact-trust
@@ -49,11 +119,33 @@ services:
       ATP_CPU_SECONDS: "30"
       ATP_MEMORY_MB: "512"
       ATP_MAX_PIDS: "64"
+      ATP_PRIVATE_KEY: /var/lib/artifact-trust-private/signing-key.pem
+      ATP_PUBLIC_KEY: /var/lib/artifact-trust-public/verification-key.pem
     volumes:
-      - artifact-trust-data:/var/lib/artifact-trust
+      - type: volume
+        source: artifact-trust-queue
+        target: /var/lib/artifact-trust
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-results
+        target: /var/lib/artifact-trust/results
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-private
+        target: /var/lib/artifact-trust-private
+        volume:
+          nocopy: true
+      - type: volume
+        source: artifact-trust-public
+        target: /var/lib/artifact-trust-public
+        volume:
+          nocopy: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+      - /var/lib/artifact-trust/sources:rw,noexec,nosuid,nodev,size=128m,mode=0770,uid=10002,gid=10000
     network_mode: none
     cap_drop: ["ALL"]
     security_opt:
@@ -64,4 +156,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  artifact-trust-data:
+  artifact-trust-queue:
+  artifact-trust-results:
+  artifact-trust-private:
+  artifact-trust-public:

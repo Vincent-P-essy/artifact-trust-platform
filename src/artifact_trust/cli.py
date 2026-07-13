@@ -17,7 +17,13 @@ from artifact_trust.config import Settings
 from artifact_trust.errors import ArtifactTrustError
 from artifact_trust.models import Decision, SourceSpec
 from artifact_trust.pipeline import run_pipeline
-from artifact_trust.provenance import generate_keypair, load_public_key, verify_envelope
+from artifact_trust.provenance import (
+    EVIDENCE_SUBJECTS,
+    envelope_subject_digests,
+    generate_keypair,
+    load_public_key,
+    verify_evidence_directory,
+)
 from artifact_trust.util import write_json
 from artifact_trust.worker import run_worker
 
@@ -145,15 +151,26 @@ def verify(
     provenance: Path = typer.Option(..., exists=True, dir_okay=False),
     public_key: Path = typer.Option(..., exists=True, dir_okay=False),
 ) -> None:
-    """Verify the DSSE signature and bind it to an artifact digest."""
+    """Verify the DSSE signature and every file in a complete evidence bundle."""
     try:
         envelope = json.loads(provenance.read_text(encoding="utf-8"))
-        result = verify_envelope(envelope, load_public_key(public_key), artifact)
+        subjects = envelope_subject_digests(envelope)
+        if tuple(sorted(subjects)) != tuple(sorted(EVIDENCE_SUBJECTS)):
+            raise ValueError("provenance does not bind the complete evidence subject set")
+        evidence_root = provenance.resolve().parent
+        if artifact.resolve() != evidence_root / "artifact.tar.gz":
+            raise ValueError("artifact path does not match the signed evidence directory")
+        result = verify_evidence_directory(envelope, load_public_key(public_key), evidence_root)
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         typer.echo(f"verification failed: {exc}", err=True)
         raise typer.Exit(1) from exc
     typer.echo(json.dumps(result.model_dump(mode="json"), sort_keys=True))
-    if not result.signature_valid or not result.artifact_digest_valid:
+    if not (
+        result.signature_valid
+        and result.provenance_valid
+        and result.artifact_digest_valid
+        and result.evidence_digests_valid
+    ):
         raise typer.Exit(3)
 
 

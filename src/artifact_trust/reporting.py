@@ -58,8 +58,8 @@ def render_html(report: PipelineReport, destination: Path) -> None:
     <dt>Policy engine</dt><dd>{escape(report.policy.engine)}</dd>
   </dl>
   <h2>Dependencies</h2>
-  <p>{len(report.manifests.components)} components, {len(report.manifests.edges)} edges, "
-  f"{len(report.manifests.unpinned_dependencies)} unpinned.</p>
+  <p>{len(report.manifests.components)} components, {len(report.manifests.edges)} edges,
+  {len(report.manifests.unpinned_dependencies)} unpinned.</p>
   <h2>Findings</h2>
   <table><thead><tr><th>Severity</th><th>Category</th><th>Finding</th><th>Subject</th></tr></thead>
   <tbody>{rows}</tbody></table>

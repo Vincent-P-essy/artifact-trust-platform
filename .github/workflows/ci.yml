@@ -57,6 +57,18 @@ jobs:
         run: uv run artifact-trust attack safe-app --output "${{ runner.temp }}/attack"
       - name: Build wheel and source distribution
         run: uv build
+      - name: Install and exercise the wheel in isolation
+        run: |
+          uv venv "${{ runner.temp }}/wheel-venv" --python 3.12
+          uv pip install --python "${{ runner.temp }}/wheel-venv/bin/python" dist/*.whl
+          ATP_WORK_ROOT="${{ runner.temp }}/wheel-work" \
+            "${{ runner.temp }}/wheel-venv/bin/artifact-trust" analyze safe-app \
+              --kind fixture --policy-engine fallback --output "${{ runner.temp }}/wheel-out"
+          "${{ runner.temp }}/wheel-venv/bin/artifact-trust" verify \
+            --artifact "${{ runner.temp }}/wheel-out/artifact.tar.gz" \
+            --provenance "${{ runner.temp }}/wheel-out/provenance.dsse.json" \
+            --public-key "${{ runner.temp }}/wheel-out/verification-key.pem"
+          tar -tzf dist/*.tar.gz | grep '/fixtures/safe-app/package-lock.json$'
       - name: Validate Compose deployment
         run: docker compose config --quiet
 
@@ -67,7 +79,81 @@ jobs:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Build hardened runtime image
-        run: docker build --tag artifact-trust-platform:ci .
+        run: docker build --tag artifact-trust-platform:local .
       - name: Inspect runtime identity
         run: |
-          test "$(docker image inspect artifact-trust-platform:ci --format '{{.Config.User}}')" = "10001:10001"
+          test "$(docker image inspect artifact-trust-platform:local --format '{{.Config.User}}')" = "10001:10000"
+          docker run --rm --network none artifact-trust-platform:local git --version
+      - name: Exercise packaged fixture in the hardened image
+        run: |
+          docker run --rm --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777 \
+            --tmpfs /var/lib/artifact-trust:rw,noexec,nosuid,nodev,size=128m,mode=0770,uid=10001,gid=10000 \
+            artifact-trust-platform:local sh -ec '
+              artifact-trust analyze safe-app --kind fixture --policy-engine fallback \
+                --output /var/lib/artifact-trust/out &&
+              artifact-trust verify \
+                --artifact /var/lib/artifact-trust/out/artifact.tar.gz \
+                --provenance /var/lib/artifact-trust/out/provenance.dsse.json \
+                --public-key /var/lib/artifact-trust/out/verification-key.pem'
+      - name: Exercise pinned HTTPS Git acquisition in the hardened image
+        run: |
+          docker run --rm --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777 \
+            --tmpfs /var/lib/artifact-trust:rw,noexec,nosuid,nodev,size=128m,mode=0770,uid=10001,gid=10000 \
+            --env ATP_ALLOW_NETWORK=1 \
+            artifact-trust-platform:local sh -ec '
+              artifact-trust analyze https://github.com/octocat/Hello-World.git --kind git \
+                --commit 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d \
+                --allow-network --allowed-host github.com --policy-engine fallback --no-enforce \
+                --output /var/lib/artifact-trust/git-out &&
+              artifact-trust verify \
+                --artifact /var/lib/artifact-trust/git-out/artifact.tar.gz \
+                --provenance /var/lib/artifact-trust/git-out/provenance.dsse.json \
+                --public-key /var/lib/artifact-trust/git-out/verification-key.pem'
+      - name: Exercise separated API and worker services
+        run: |
+          trap 'docker compose down --volumes --remove-orphans' EXIT
+          docker compose up --detach --no-build
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/healthz >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          test "$healthy" = 1
+          test "$(docker compose exec -T api id -u)" = "10001"
+          test "$(docker compose exec -T api id -g)" = "10000"
+          test "$(docker compose exec -T worker id -u)" = "10002"
+          test "$(docker compose exec -T worker id -g)" = "10000"
+          job_id="$(curl --fail-with-body --silent --show-error \
+            -X POST http://127.0.0.1:8000/api/v1/jobs \
+            -H 'content-type: application/json' \
+            -d '{"source":{"kind":"fixture","location":"safe-app"},"policy_engine":"fallback"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          state=pending
+          for attempt in $(seq 1 30); do
+            state="$(curl --fail-with-body --silent --show-error \
+              "http://127.0.0.1:8000/api/v1/jobs/${job_id}" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
+            test "$state" = completed && break
+            test "$state" != failed
+            sleep 1
+          done
+          test "$state" = completed
+          curl --fail-with-body --silent --show-error \
+            "http://127.0.0.1:8000/api/v1/jobs/${job_id}/report" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["policy"]["decision"] == "ALLOW"'
+          curl --fail-with-body --silent --show-error \
+            "http://127.0.0.1:8000/api/v1/jobs/${job_id}/report.html" >/dev/null
+          docker compose exec -T api test ! -e /var/lib/artifact-trust-private/signing-key.pem
+          docker compose exec -T api sh -ec \
+            'if touch /var/lib/artifact-trust/results/api-write 2>/dev/null; then exit 1; fi'
+          docker compose exec -T api sh -ec \
+            'if touch /var/lib/artifact-trust/completed/api-write 2>/dev/null; then exit 1; fi'
+          docker compose exec -T worker sh -ec \
+            'grep "/var/lib/artifact-trust/sources" /proc/mounts | grep -q tmpfs'

@@ -39,6 +39,12 @@ def test_api_only_enqueues_then_separate_worker_completes(
     assert html.status_code == 200
     assert "Artifact Trust Report" in html.text
 
+    report_path = settings.work_root / "results" / job["id"] / "report.json"
+    with report_path.open("ab") as handle:
+        handle.write(b" ")
+    assert client.get(f"/api/v1/jobs/{job['id']}/report").status_code == 409
+    assert client.get(f"/api/v1/jobs/{job['id']}/report.html").status_code == 409
+
 
 def test_api_rejects_local_and_unknown_fixture(settings: Settings) -> None:
     client = TestClient(create_app(settings))

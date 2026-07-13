@@ -10,7 +10,11 @@ from artifact_trust.models import SandboxPolicy
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parents[1]
-DEFAULT_FIXTURES_ROOT = PROJECT_ROOT / "fixtures"
+PACKAGED_FIXTURES_ROOT = PACKAGE_ROOT / "fixtures"
+REPOSITORY_FIXTURES_ROOT = PROJECT_ROOT / "fixtures"
+DEFAULT_FIXTURES_ROOT = (
+    PACKAGED_FIXTURES_ROOT if PACKAGED_FIXTURES_ROOT.is_dir() else REPOSITORY_FIXTURES_ROOT
+)
 
 
 def _csv(value: str) -> tuple[str, ...]:

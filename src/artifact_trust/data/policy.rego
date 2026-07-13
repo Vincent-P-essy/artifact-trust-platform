@@ -2,15 +2,18 @@ package artifacttrust
 
 import rego.v1
 
-policy_version := "2026-07-12.1"
+policy_version := "2026-07-13.1"
 
 reject_reasons contains "source is not pinned" if not input.source_pinned
 reject_reasons contains "provenance signature is invalid" if not input.signature_valid
+reject_reasons contains "provenance statement is invalid" if not input.provenance_valid
 reject_reasons contains "artifact digest does not match provenance" if not input.artifact_digest_valid
+reject_reasons contains "signed evidence digests do not match" if not input.evidence_digests_valid
 reject_reasons contains "potential secrets detected" if input.secrets > 0
 reject_reasons contains "critical vulnerabilities detected" if input.critical_vulnerabilities > 0
 reject_reasons contains "disallowed licenses detected" if input.disallowed_licenses > 0
 reject_reasons contains "dependencies are not exactly pinned" if input.unpinned_dependencies > 0
+reject_reasons contains "dependency manifest integrity is incomplete" if input.manifest_integrity_errors > 0
 
 quarantine_reasons contains "high vulnerabilities require review" if input.high_vulnerabilities > 0
 quarantine_reasons contains "medium vulnerabilities require review" if input.medium_vulnerabilities > 0

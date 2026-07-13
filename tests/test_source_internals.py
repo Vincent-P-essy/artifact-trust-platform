@@ -88,6 +88,28 @@ def test_materialize_git_with_fixed_git_boundary(
     assert (root / "manifest.txt").read_text(encoding="utf-8") == "content"
 
 
+def test_materialize_git_cleans_private_checkout_after_failure(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    enabled = replace(settings, network_enabled=True, work_root=tmp_path / "work")
+
+    def fail_git(arguments: list[str], cwd: Path, timeout: int) -> SimpleNamespace:
+        del arguments, cwd, timeout
+        raise SourceValidationError("controlled fetch failure")
+
+    monkeypatch.setattr("artifact_trust.source._run_git", fail_git)
+    with pytest.raises(SourceValidationError, match="controlled"):
+        _materialize_git(
+            SourceSpec(
+                kind="git",
+                location="https://github.com/o/r.git",
+                commit="a" * 40,
+            ),
+            enabled,
+        )
+    assert list((enabled.work_root / "sources").iterdir()) == []
+
+
 def test_git_helpers_and_validation_edges(settings: Settings, tmp_path: Path) -> None:
     environment = _git_environment()
     assert environment["GIT_TERMINAL_PROMPT"] == "0"

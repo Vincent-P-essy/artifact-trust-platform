@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from artifact_trust.config import Settings
 from artifact_trust.manifests import ROOT_REF, analyze_manifests
 from artifact_trust.sbom import build_cyclonedx, build_dependency_graph
@@ -53,3 +56,19 @@ def test_unpinned_requirement_is_reported(settings: Settings) -> None:
     assert analysis.unpinned_dependencies == ("requests",)
     findings = run_offline_scans(root, analysis, settings.sandbox)
     assert any(item.category == "manifest" and "not pinned" in item.title for item in findings)
+
+
+def test_incomplete_lockfile_warning_is_a_blocking_finding(
+    settings: Settings, tmp_path: Path
+) -> None:
+    lockfile = {
+        "lockfileVersion": 3,
+        "packages": {"": {"dependencies": {"missing-lib": "1.0.0"}}},
+    }
+    (tmp_path / "package-lock.json").write_text(json.dumps(lockfile), encoding="utf-8")
+    analysis = analyze_manifests(tmp_path, settings.sandbox)
+    assert analysis.warnings == ("package-lock.json: unresolved direct dependency missing-lib",)
+    findings = run_offline_scans(tmp_path, analysis, settings.sandbox)
+    assert any(
+        finding.category == "manifest" and finding.severity.value == "high" for finding in findings
+    )

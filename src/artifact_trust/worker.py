@@ -45,7 +45,7 @@ def _child_environment(settings: Settings) -> dict[str, str]:
 
 
 def _limit_child(settings: Settings) -> None:
-    os.umask(0o077)
+    os.umask(0o027)
     memory = settings.sandbox.memory_mb * 1024 * 1024
     resource.setrlimit(
         resource.RLIMIT_CPU, (settings.sandbox.cpu_seconds, settings.sandbox.cpu_seconds)

@@ -8,6 +8,7 @@ offline, deterministic, and deliberately does not execute repository code.
 
 - safe source acquisition: named fixtures, allowlisted local roots, or HTTPS Git with an
   exact 40-character commit SHA and host allowlist;
+- descriptor-based, no-follow snapshots for mutable local and fixture trees before analysis;
 - file-count, file-size, total-size, CPU, memory, process and wall-clock limits;
 - deterministic source bundle and SHA-256 tree digest;
 - npm package-lock v2/v3 and Python PEP 621/requirements parsing;
@@ -16,7 +17,7 @@ offline, deterministic, and deliberately does not execute repository code.
 - offline secret, license, manifest-quality and vulnerability checks;
 - transparent 0–100 security score with per-finding deductions;
 - signed in-toto Statement v1 with a SLSA v1-shaped provenance predicate;
-- Ed25519 DSSE signature and artifact-digest verification;
+- Ed25519 DSSE signature over a closed eight-file evidence set, with every digest verified;
 - deterministic `ALLOW`, `QUARANTINE`, or `REJECT` policy, with a matching Rego policy;
 - JSON and self-contained HTML reports;
 - CLI, FastAPI control plane, dashboard, atomic file queue, and separate worker process;
@@ -50,19 +51,25 @@ A successful safe-fixture run exits 0 and writes:
 | `dependency-graph.json` | nodes, edges and adjacency list |
 | `findings.json` | redacted normalized findings |
 | `policy-input.json` | complete deterministic decision input |
-| `provenance.dsse.json` | signed in-toto/SLSA-shaped provenance |
-| `verification-key.pem` | public key used for this result |
+| `decision.json` | policy input, policy result and risk assessment used by the gate |
+| `provenance.dsse.json` | DSSE-signed in-toto/SLSA-shaped provenance binding all eight evidence files |
+| `verification-key.pem` | convenience copy of the public key; not a trust anchor by itself |
 | `report.json` | machine-readable consolidated result |
 | `report.html` | self-contained human-readable result |
 
-Verify the binding independently:
+Verify the complete bundle with a public key obtained through a trusted, out-of-band channel:
 
 ```bash
 uv run artifact-trust verify \
   --artifact out/artifact.tar.gz \
   --provenance out/provenance.dsse.json \
-  --public-key out/verification-key.pem
+  --public-key verification-key.pem
 ```
+
+The verifier requires the exact subject set `artifact.tar.gz`, `decision.json`,
+`dependency-graph.json`, `findings.json`, `policy-input.json`, `report.html`, `report.json`, and
+`sbom.cdx.json`. A partial artifact-only envelope is rejected instead of silently downgrading the
+verification contract.
 
 ## Policy gate
 
@@ -72,13 +79,14 @@ reporting workflow at exit 0 while preserving the decision in the report.
 
 | Condition | Decision |
 |---|---|
-| invalid signature, digest mismatch, unpinned source/dependency, secret, critical vulnerability, disallowed license | `REJECT` |
+| invalid signature/provenance/evidence digest, incomplete manifest integrity, unpinned source/dependency, secret, critical vulnerability, disallowed license | `REJECT` |
 | high/medium vulnerability, unknown license or missing supported manifest | `QUARANTINE` |
 | all mandatory controls pass | `ALLOW` |
 
 `src/artifact_trust/data/policy.rego` expresses the same rules. `--policy-engine auto`
-uses OPA when present and otherwise uses the tested fallback. `--policy-engine opa`
-fails closed when OPA is absent or returns an invalid document.
+uses OPA only when its decision, reasons and policy version exactly match the deterministic
+fallback; otherwise it uses that fallback. `--policy-engine opa` fails closed when OPA is absent,
+returns an invalid document or diverges.
 
 ## Controlled tampering proof
 
@@ -98,7 +106,9 @@ The API validates and queues requests. It never imports the worker child and nev
 analysis. Start the two processes separately:
 
 ```bash
-ATP_WORK_ROOT="$PWD/.artifact-trust" uv run artifact-trust serve
+ATP_WORK_ROOT="$PWD/.artifact-trust" \
+ATP_PUBLIC_KEY="$PWD/verification-key.pem" \
+uv run artifact-trust serve
 ATP_WORK_ROOT="$PWD/.artifact-trust" \
 ATP_PRIVATE_KEY="$PWD/signing-key.pem" \
 ATP_PUBLIC_KEY="$PWD/verification-key.pem" \
@@ -141,9 +151,13 @@ docker compose up --build
 
 Set `ATP_PORT=18080` before the command when local port 8000 is already occupied.
 
-The default worker has no network, runs as an unprivileged user with a read-only root
-filesystem, dropped capabilities, `no-new-privileges`, a PID limit, memory/CPU limits and
-a shared queue volume. See `docs/architecture.md` before enabling remote Git acquisition.
+The default API and worker use distinct UIDs. They share one queue filesystem so claims remain
+atomic. A one-shot, networkless init service establishes numeric ownership on fresh `nocopy`
+volumes before either long-running service starts. The API can write only `pending`; completed
+state is worker-owned, results are mounted read-only into the API, and the private-key volume is
+mounted only into the worker. The worker has no network, a read-only root filesystem, dropped
+capabilities, `no-new-privileges`, PID/memory/CPU limits, and an ephemeral `noexec` source
+snapshot. See `docs/architecture.md` before enabling remote Git acquisition.
 
 ## Optional scanners
 
@@ -170,9 +184,10 @@ uv run pytest --cov=artifact_trust --cov-report=term-missing
 ```
 
 The measured numbers depend on the host; the command records iterations, p50, p95, mean,
-minimum and maximum. `benchmarks/baseline.json` records one dated run with its host context;
-it measured p50 2.501 ms and p95 3.293 ms for the three-file safe fixture. This is not a
-production-capacity claim. Golden tests separately prove byte reproducibility with a fixed key.
+minimum and maximum. `benchmarks/baseline.json` records one dated run with its host and source
+context. On that machine, the hardened three-file fixture pipeline measured p50 3.435 ms and p95
+4.494 ms over 20 measured runs after two warmups. This is not a production-capacity claim. Golden
+tests separately prove byte reproducibility with a fixed key.
 
 ## Documentation
 

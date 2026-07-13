@@ -14,7 +14,9 @@ def _policy_input(**updates: object) -> PolicyInput:
     values: dict[str, object] = {
         "source_pinned": True,
         "signature_valid": True,
+        "provenance_valid": True,
         "artifact_digest_valid": True,
+        "evidence_digests_valid": True,
         "secrets": 0,
         "critical_vulnerabilities": 0,
         "high_vulnerabilities": 0,
@@ -31,6 +33,7 @@ def test_fallback_policy_has_three_outcomes() -> None:
     assert evaluate_fallback(_policy_input()).decision == Decision.ALLOW
     assert evaluate_fallback(_policy_input(high_vulnerabilities=1)).decision == Decision.QUARANTINE
     assert evaluate_fallback(_policy_input(secrets=1)).decision == Decision.REJECT
+    assert evaluate_fallback(_policy_input(manifest_integrity_errors=1)).decision == Decision.REJECT
 
 
 def test_auto_policy_falls_back_when_opa_is_missing() -> None:

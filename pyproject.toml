@@ -35,8 +35,11 @@ artifact-trust-worker = "artifact_trust.cli:worker_entrypoint"
 [tool.hatch.build.targets.wheel]
 packages = ["src/artifact_trust"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"fixtures" = "artifact_trust/fixtures"
+
 [tool.hatch.build]
-include = ["src/artifact_trust/**/*.py", "src/artifact_trust/data/*.json", "src/artifact_trust/data/*.rego", "src/artifact_trust/static/*"]
+include = ["src/artifact_trust/**/*.py", "src/artifact_trust/data/*.json", "src/artifact_trust/data/*.rego", "src/artifact_trust/static/*", "fixtures/**/*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --disable-warnings"
