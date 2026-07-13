@@ -10,9 +10,16 @@ from artifact_trust.benchmark import benchmark_pipeline
 from artifact_trust.config import Settings
 from artifact_trust.models import Decision, SourceSpec
 from artifact_trust.pipeline import run_pipeline
+from artifact_trust.provenance import (
+    EVIDENCE_SUBJECTS,
+    envelope_subject_digests,
+    load_public_key,
+    verify_evidence_directory,
+)
 
 DETERMINISTIC_OUTPUTS = (
     "artifact.tar.gz",
+    "decision.json",
     "dependency-graph.json",
     "findings.json",
     "policy-input.json",
@@ -52,6 +59,14 @@ def test_safe_pipeline_matches_golden_and_is_byte_reproducible(
     assert first_report.risk.score == 100
     assert first_report.risk.grade == "A"
     assert second_report.report_id == first_report.report_id
+    envelope = json.loads((first / "provenance.dsse.json").read_text(encoding="utf-8"))
+    assert tuple(sorted(envelope_subject_digests(envelope))) == tuple(sorted(EVIDENCE_SUBJECTS))
+    verification = verify_evidence_directory(
+        envelope, load_public_key(first / "verification-key.pem"), first
+    )
+    assert verification.signature_valid
+    assert verification.provenance_valid
+    assert verification.evidence_digests_valid
 
 
 @pytest.mark.parametrize(

@@ -17,23 +17,24 @@ from artifact_trust.artifact import build_source_artifact
 from artifact_trust.config import Settings
 from artifact_trust.errors import SourceValidationError
 from artifact_trust.manifests import analyze_manifests
-from artifact_trust.models import PipelineReport, SourceSpec
+from artifact_trust.models import PipelineReport, SourceSpec, VerificationResult
 from artifact_trust.policy import evaluate_policy, make_policy_input
 from artifact_trust.provenance import (
+    EVIDENCE_SUBJECTS,
     build_statement,
     generate_keypair,
     load_private_key,
     load_public_key,
     public_key_id,
     sign_statement,
-    verify_envelope,
+    verify_evidence_directory,
 )
 from artifact_trust.reporting import render_html
 from artifact_trust.risk import assess_risk
 from artifact_trust.sbom import build_cyclonedx, build_dependency_graph
 from artifact_trust.scanners import run_offline_scans
-from artifact_trust.source import materialize_source
-from artifact_trust.util import canonical_json_bytes, sha256_bytes, write_json
+from artifact_trust.source import materialize_source, remove_materialized_source
+from artifact_trust.util import canonical_json_bytes, sha256_bytes, sha256_file, write_json
 
 
 def ensure_signing_key(settings: Settings) -> tuple[Path, Path]:
@@ -43,6 +44,11 @@ def ensure_signing_key(settings: Settings) -> tuple[Path, Path]:
         public_path = settings.public_key_path
         if public_path is None:
             public_path = settings.work_root / "keys" / "derived-public.pem"
+        if not private_path.exists() and not public_path.exists():
+            generate_keypair(private_path, public_path)
+        elif not private_path.exists():
+            raise FileNotFoundError("configured signing key is missing")
+        elif not public_path.exists():
             public_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             key = load_private_key(private_path)
             public_path.write_bytes(
@@ -53,6 +59,8 @@ def ensure_signing_key(settings: Settings) -> tuple[Path, Path]:
             )
             public_path.chmod(0o644)
         return private_path, public_path
+    if settings.public_key_path is not None:
+        raise FileNotFoundError("a signing key is required to produce evidence")
     key_root = settings.work_root / "keys"
     key_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     private_path = key_root / "signing-key.pem"
@@ -77,7 +85,9 @@ def _prepare_stage(output: Path) -> Path:
         if any(output.iterdir()):
             raise FileExistsError(f"output directory is not empty: {output}")
         output.rmdir()
-    return Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))
+    stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))
+    stage.chmod(0o750)
+    return stage
 
 
 def run_pipeline(
@@ -88,12 +98,12 @@ def run_pipeline(
 ) -> PipelineReport:
     settings.ensure_directories()
     source = materialize_source(source_spec, settings)
-    output_resolved = output.resolve()
-    if output_resolved == source.root or output_resolved.is_relative_to(source.root):
-        raise SourceValidationError("output directory must be outside the source tree")
-    stage = _prepare_stage(output_resolved)
-    cleanup_source = source.kind == "git"
+    stage: Path | None = None
     try:
+        output_resolved = output.resolve()
+        if output_resolved == source.root or output_resolved.is_relative_to(source.root):
+            raise SourceValidationError("output directory must be outside the source tree")
+        stage = _prepare_stage(output_resolved)
         artifact_path = stage / "artifact.tar.gz"
         artifact_digest, artifact_size = build_source_artifact(
             source.root, artifact_path, settings.sandbox
@@ -111,11 +121,15 @@ def run_pipeline(
         private_path, public_path = ensure_signing_key(settings)
         private_key = load_private_key(private_path)
         _validate_keypair(private_key, public_path)
-        statement = build_statement(
-            source, analysis, artifact_digest, report_id, settings.source_date_epoch
+        key_id = public_key_id(private_key.public_key())
+        verification = VerificationResult(
+            signature_valid=True,
+            provenance_valid=True,
+            artifact_digest_valid=True,
+            evidence_digests_valid=True,
+            key_id=key_id,
+            subject_digest=artifact_digest,
         )
-        envelope = sign_statement(statement, private_key)
-        verification = verify_envelope(envelope, load_public_key(public_path), artifact_path)
         risk = assess_risk(findings, verification, source.pinned)
         policy_input = make_policy_input(findings, analysis, verification, source.pinned)
         policy_result = evaluate_policy(policy_input, policy_engine)
@@ -128,13 +142,13 @@ def run_pipeline(
         write_json(stage / "dependency-graph.json", build_dependency_graph(analysis))
         write_json(stage / "findings.json", [item.model_dump(mode="json") for item in findings])
         write_json(stage / "policy-input.json", policy_input.model_dump(mode="json"))
-        write_json(stage / "provenance.dsse.json", envelope)
         shutil.copyfile(public_path, stage / "verification-key.pem")
         (stage / "verification-key.pem").chmod(0o644)
 
         outputs = {
             "artifact": "artifact.tar.gz",
             "dependency_graph": "dependency-graph.json",
+            "decision": "decision.json",
             "findings": "findings.json",
             "html_report": "report.html",
             "json_report": "report.json",
@@ -143,6 +157,16 @@ def run_pipeline(
             "sbom": "sbom.cdx.json",
             "verification_key": "verification-key.pem",
         }
+        write_json(
+            stage / "decision.json",
+            {
+                "schema_version": "1.0",
+                "report_id": report_id,
+                "policy_input": policy_input.model_dump(mode="json"),
+                "policy": policy_result.model_dump(mode="json"),
+                "risk": risk.model_dump(mode="json"),
+            },
+        )
         report = PipelineReport(
             schema_version="1.0",
             report_id=report_id,
@@ -171,14 +195,36 @@ def run_pipeline(
         )
         write_json(stage / "report.json", report.model_dump(mode="json"))
         render_html(report, stage / "report.html")
+        evidence_digests = {
+            name: sha256_file(stage / name)
+            for name in EVIDENCE_SUBJECTS
+            if name != "artifact.tar.gz"
+        }
+        statement = build_statement(
+            source,
+            analysis,
+            artifact_digest,
+            report_id,
+            settings.source_date_epoch,
+            evidence_digests,
+        )
+        envelope = sign_statement(statement, private_key)
+        write_json(stage / "provenance.dsse.json", envelope)
+        final_verification = verify_evidence_directory(
+            envelope, load_public_key(public_path), stage
+        )
+        if final_verification != verification:
+            raise ValueError(
+                "generated evidence failed closed-set signature and digest verification"
+            )
         os.replace(stage, output_resolved)
         return report
     except Exception:
-        shutil.rmtree(stage, ignore_errors=True)
+        if stage is not None:
+            shutil.rmtree(stage, ignore_errors=True)
         raise
     finally:
-        if cleanup_source:
-            shutil.rmtree(source.root.parent, ignore_errors=True)
+        remove_materialized_source(source, settings)
 
 
 def load_report(path: Path) -> PipelineReport:

@@ -5,7 +5,9 @@ from artifact_trust.risk import assess_risk
 def test_risk_score_is_transparent_and_bounded() -> None:
     verification = VerificationResult(
         signature_valid=True,
+        provenance_valid=True,
         artifact_digest_valid=True,
+        evidence_digests_valid=True,
         key_id="sha256:key",
         subject_digest="a" * 64,
     )

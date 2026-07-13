@@ -7,10 +7,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
+COPY README.md LICENSE ./
 COPY src ./src
+COPY fixtures ./fixtures
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
@@ -23,14 +25,29 @@ ENV PATH="/app/.venv/bin:$PATH" \
     ATP_ALLOWED_LOCAL_ROOTS=/app/fixtures \
     ATP_ALLOWED_GIT_HOSTS=github.com \
     ATP_ALLOW_NETWORK=0
-RUN groupadd --gid 10001 artifacttrust \
-    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent \
-       --shell /usr/sbin/nologin artifacttrust \
-    && install -d -o artifacttrust -g artifacttrust -m 0700 /var/lib/artifact-trust
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10000 artifacttrust \
+    && groupadd --gid 10002 artifactworker \
+    && useradd --uid 10001 --gid 10000 --no-create-home --home-dir /nonexistent \
+       --shell /usr/sbin/nologin artifactapi \
+    && useradd --uid 10002 --gid 10000 --no-create-home --home-dir /nonexistent \
+       --shell /usr/sbin/nologin artifactworker \
+    && usermod --append --groups artifactworker artifactworker \
+    && install -d -o root -g artifacttrust -m 0755 /var/lib/artifact-trust \
+    && install -d -o artifactapi -g artifacttrust -m 0770 /var/lib/artifact-trust/pending \
+    && install -d -o artifactworker -g artifactworker -m 0755 \
+       /var/lib/artifact-trust/running \
+       /var/lib/artifact-trust/completed \
+       /var/lib/artifact-trust/failed \
+    && install -d -o artifactworker -g artifacttrust -m 0770 /var/lib/artifact-trust/results \
+    && install -d -o artifactworker -g artifactworker -m 0700 /var/lib/artifact-trust/sources \
+    && install -d -o artifactworker -g artifacttrust -m 0700 /var/lib/artifact-trust-private \
+    && install -d -o artifactworker -g artifacttrust -m 0770 /var/lib/artifact-trust-public
 WORKDIR /app
-COPY --from=builder --chown=10001:10001 /app/.venv /app/.venv
-COPY --chown=10001:10001 fixtures /app/fixtures
-USER 10001:10001
+COPY --from=builder --chown=10001:10000 /app/.venv /app/.venv
+COPY --chown=10001:10000 fixtures /app/fixtures
+USER 10001:10000
 EXPOSE 8000
-VOLUME ["/var/lib/artifact-trust"]
 CMD ["artifact-trust", "serve", "--host", "0.0.0.0", "--port", "8000"]

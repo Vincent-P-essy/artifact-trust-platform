@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -50,6 +51,49 @@ def test_cli_analyze_and_verify(settings: Settings, tmp_path: Path) -> None:
     )
     assert verified.exit_code == 0, verified.output
     assert json.loads(verified.stdout)["artifact_digest_valid"] is True
+    assert json.loads(verified.stdout)["evidence_digests_valid"] is True
+
+    envelope = json.loads((output / "provenance.dsse.json").read_text(encoding="utf-8"))
+    statement = json.loads(base64.b64decode(envelope["payload"], validate=True))
+    statement["subject"] = [
+        subject for subject in statement["subject"] if subject["name"] == "artifact.tar.gz"
+    ]
+    envelope["payload"] = base64.b64encode(
+        json.dumps(statement, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    incomplete_provenance = tmp_path / "incomplete.dsse.json"
+    incomplete_provenance.write_text(json.dumps(envelope), encoding="utf-8")
+    incomplete = runner.invoke(
+        app,
+        [
+            "verify",
+            "--artifact",
+            str(output / "artifact.tar.gz"),
+            "--provenance",
+            str(incomplete_provenance),
+            "--public-key",
+            str(output / "verification-key.pem"),
+        ],
+    )
+    assert incomplete.exit_code == 1
+    assert "complete evidence subject set" in incomplete.output
+
+    with (output / "report.json").open("ab") as handle:
+        handle.write(b" ")
+    rejected = runner.invoke(
+        app,
+        [
+            "verify",
+            "--artifact",
+            str(output / "artifact.tar.gz"),
+            "--provenance",
+            str(output / "provenance.dsse.json"),
+            "--public-key",
+            str(output / "verification-key.pem"),
+        ],
+    )
+    assert rejected.exit_code == 3
+    assert json.loads(rejected.stdout)["evidence_digests_valid"] is False
 
 
 def test_cli_policy_gate_exits_nonzero(settings: Settings, tmp_path: Path) -> None:

@@ -13,7 +13,12 @@ def assess_risk(
     deductions: list[tuple[str, int]] = []
     if not source_pinned:
         deductions.append(("source is not pinned", 30))
-    if not verification.signature_valid or not verification.artifact_digest_valid:
+    if (
+        not verification.signature_valid
+        or not verification.provenance_valid
+        or not verification.artifact_digest_valid
+        or not verification.evidence_digests_valid
+    ):
         deductions.append(("artifact integrity evidence is invalid", 100))
     weights = {
         ("secret", Severity.CRITICAL): 40,

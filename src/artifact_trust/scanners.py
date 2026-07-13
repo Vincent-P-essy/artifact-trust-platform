@@ -181,6 +181,19 @@ def scan_manifest_quality(analysis: ManifestAnalysis) -> list[Finding]:
                 remediation="Resolve and commit an exact lockfile version",
             )
         )
+    for warning in analysis.warnings:
+        subject = " ".join(warning.replace("\x00", "").split())[:300]
+        findings.append(
+            Finding(
+                id=_finding_id("manifest", subject, "integrity-gap"),
+                category="manifest",
+                severity=Severity.HIGH,
+                title="Dependency manifest is incomplete or inconsistent",
+                subject=subject,
+                evidence="manifest:integrity-incomplete",
+                remediation="Regenerate and commit a complete supported lockfile",
+            )
+        )
     if not analysis.manifests:
         findings.append(
             Finding(

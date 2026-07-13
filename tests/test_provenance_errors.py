@@ -41,3 +41,17 @@ def test_envelope_rejects_wrong_key_and_malformed_payload(tmp_path: Path) -> Non
     malformed = verify_envelope({}, load_public_key(first_public), artifact)
     assert malformed.signature_valid is False
     assert malformed.error is not None
+
+    wrong_statement = sign_statement(
+        {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [{"name": "artifact.tar.gz", "digest": {"sha256": "0" * 64}}],
+            "predicateType": "https://example.invalid/not-slsa",
+            "predicate": {},
+        },
+        load_private_key(first_private),
+    )
+    semantic = verify_envelope(wrong_statement, load_public_key(first_public), artifact)
+    assert semantic.signature_valid is True
+    assert semantic.provenance_valid is False
+    assert semantic.artifact_digest_valid is False

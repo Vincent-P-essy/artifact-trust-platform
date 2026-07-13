@@ -109,7 +109,9 @@ class Finding(FrozenModel):
 class PolicyInput(FrozenModel):
     source_pinned: bool
     signature_valid: bool
+    provenance_valid: bool
     artifact_digest_valid: bool
+    evidence_digests_valid: bool
     secrets: int = Field(ge=0)
     critical_vulnerabilities: int = Field(ge=0)
     high_vulnerabilities: int = Field(ge=0)
@@ -118,6 +120,7 @@ class PolicyInput(FrozenModel):
     unknown_licenses: int = Field(ge=0)
     unpinned_dependencies: int = Field(ge=0)
     manifest_coverage_gaps: int = Field(default=0, ge=0)
+    manifest_integrity_errors: int = Field(default=0, ge=0)
 
 
 class PolicyResult(FrozenModel):
@@ -132,6 +135,8 @@ class VerificationResult(FrozenModel):
     artifact_digest_valid: bool
     key_id: str
     subject_digest: str
+    provenance_valid: bool
+    evidence_digests_valid: bool
     error: str | None = None
 
 

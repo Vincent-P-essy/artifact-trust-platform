@@ -11,8 +11,13 @@ from typing import cast
 
 from artifact_trust.config import Settings
 from artifact_trust.errors import JobError
-from artifact_trust.models import JobRecord, JobRequest
-from artifact_trust.util import write_json
+from artifact_trust.models import JobRecord, JobRequest, PipelineReport, PolicyInput
+from artifact_trust.provenance import (
+    envelope_subject_digests,
+    load_public_key,
+    verify_evidence_directory,
+)
+from artifact_trust.util import sha256_bytes, write_json
 
 
 def _now() -> str:
@@ -113,13 +118,84 @@ class FileQueue:
         return failed
 
     def result(self, job_id: str) -> dict[str, object]:
+        report, _, _ = self._verified_result(job_id)
+        return cast(dict[str, object], report.model_dump(mode="json"))
+
+    def html_result(self, job_id: str) -> str:
+        _, output, digests = self._verified_result(job_id)
+        html_path = output / "report.html"
+        try:
+            payload = html_path.read_bytes()
+        except OSError as exc:
+            raise JobError("HTML report is unavailable") from exc
+        if sha256_bytes(payload) != digests["report.html"]:
+            raise JobError("HTML report digest does not match signed evidence")
+        try:
+            return payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise JobError("HTML report is not UTF-8") from exc
+
+    def _verified_result(self, job_id: str) -> tuple[PipelineReport, Path, dict[str, str]]:
         record = self.get(job_id)
         if record is None or record.state != "completed" or record.result_path is None:
             raise JobError("job has no completed result")
-        path = (self.settings.work_root / record.result_path).resolve()
-        if not path.is_relative_to(self.settings.work_root) or path.name != "report.json":
+        try:
+            path = (self.settings.work_root / record.result_path).resolve(strict=True)
+        except OSError as exc:
+            raise JobError("result path is unavailable") from exc
+        work_root = self.settings.work_root.resolve()
+        if not path.is_relative_to(work_root) or path.name != "report.json":
             raise JobError("invalid result path")
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise JobError("invalid result document")
-        return cast(dict[str, object], payload)
+        if self.settings.public_key_path is None or not self.settings.public_key_path.is_file():
+            raise JobError("trusted verification key is unavailable")
+        output = path.parent
+        provenance_path = output / "provenance.dsse.json"
+        try:
+            envelope_payload = provenance_path.read_text(encoding="utf-8")
+            envelope = json.loads(envelope_payload)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise JobError("invalid provenance document") from exc
+        if not isinstance(envelope, dict):
+            raise JobError("invalid provenance document")
+        try:
+            public_key = load_public_key(self.settings.public_key_path)
+        except (OSError, ValueError, TypeError) as exc:
+            raise JobError("trusted verification key is invalid") from exc
+        verification = verify_evidence_directory(envelope, public_key, output)
+        if not (
+            verification.signature_valid
+            and verification.provenance_valid
+            and verification.artifact_digest_valid
+            and verification.evidence_digests_valid
+        ):
+            raise JobError("completed result failed signed evidence verification")
+        try:
+            digests = envelope_subject_digests(envelope)
+            report_bytes = path.read_bytes()
+            decision_bytes = (output / "decision.json").read_bytes()
+            policy_input_bytes = (output / "policy-input.json").read_bytes()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise JobError("cannot read signed result evidence") from exc
+        if sha256_bytes(report_bytes) != digests["report.json"]:
+            raise JobError("report digest does not match signed evidence")
+        if sha256_bytes(decision_bytes) != digests["decision.json"]:
+            raise JobError("decision digest does not match signed evidence")
+        if sha256_bytes(policy_input_bytes) != digests["policy-input.json"]:
+            raise JobError("policy input digest does not match signed evidence")
+        try:
+            report = PipelineReport.model_validate_json(report_bytes)
+            decision = json.loads(decision_bytes)
+            policy_input = PolicyInput.model_validate_json(policy_input_bytes)
+            if not isinstance(decision, dict):
+                raise ValueError("decision must be an object")
+            if decision.get("report_id") != report.report_id:
+                raise ValueError("decision report identifier mismatch")
+            if decision.get("policy") != report.policy.model_dump(mode="json"):
+                raise ValueError("report and decision policy differ")
+            if decision.get("risk") != report.risk.model_dump(mode="json"):
+                raise ValueError("report and decision risk differ")
+            if decision.get("policy_input") != policy_input.model_dump(mode="json"):
+                raise ValueError("decision and policy input differ")
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise JobError("signed result documents are inconsistent") from exc
+        return report, output, digests

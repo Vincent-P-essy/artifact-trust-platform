@@ -54,3 +54,18 @@ def test_pipeline_rejects_mismatched_keys(settings: Settings, tmp_path: Path) ->
             mismatched,
             "fallback",
         )
+
+
+def test_pipeline_bootstraps_configured_separate_key_paths(
+    settings: Settings, tmp_path: Path
+) -> None:
+    separated = replace(
+        settings,
+        work_root=tmp_path / "work",
+        private_key_path=tmp_path / "private" / "signing-key.pem",
+        public_key_path=tmp_path / "public" / "verification-key.pem",
+    )
+    private, public = ensure_signing_key(separated)
+    assert private == separated.private_key_path
+    assert public == separated.public_key_path
+    assert private.is_file() and public.is_file()

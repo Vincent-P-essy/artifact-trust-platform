@@ -22,7 +22,7 @@ from artifact_trust.models import (
 )
 from artifact_trust.util import write_json
 
-POLICY_VERSION = "2026-07-12.1"
+POLICY_VERSION = "2026-07-13.1"
 
 
 def make_policy_input(
@@ -36,7 +36,9 @@ def make_policy_input(
     return PolicyInput(
         source_pinned=source_pinned,
         signature_valid=verification.signature_valid,
+        provenance_valid=verification.provenance_valid,
         artifact_digest_valid=verification.artifact_digest_valid,
+        evidence_digests_valid=verification.evidence_digests_valid,
         secrets=sum(finding.category == "secret" for finding in findings),
         critical_vulnerabilities=sum(
             finding.severity == Severity.CRITICAL for finding in vulnerabilities
@@ -52,6 +54,11 @@ def make_policy_input(
             finding.category == "manifest" and finding.severity == Severity.MEDIUM
             for finding in findings
         ),
+        manifest_integrity_errors=sum(
+            finding.category == "manifest"
+            and finding.severity in {Severity.HIGH, Severity.CRITICAL}
+            for finding in findings
+        ),
     )
 
 
@@ -62,8 +69,12 @@ def evaluate_fallback(policy_input: PolicyInput) -> PolicyResult:
         reject_reasons.append("source is not pinned")
     if not policy_input.signature_valid:
         reject_reasons.append("provenance signature is invalid")
+    if not policy_input.provenance_valid:
+        reject_reasons.append("provenance statement is invalid")
     if not policy_input.artifact_digest_valid:
         reject_reasons.append("artifact digest does not match provenance")
+    if not policy_input.evidence_digests_valid:
+        reject_reasons.append("signed evidence digests do not match")
     if policy_input.secrets:
         reject_reasons.append("potential secrets detected")
     if policy_input.critical_vulnerabilities:
@@ -72,6 +83,8 @@ def evaluate_fallback(policy_input: PolicyInput) -> PolicyResult:
         reject_reasons.append("disallowed licenses detected")
     if policy_input.unpinned_dependencies:
         reject_reasons.append("dependencies are not exactly pinned")
+    if policy_input.manifest_integrity_errors:
+        reject_reasons.append("dependency manifest integrity is incomplete")
     if policy_input.high_vulnerabilities:
         quarantine_reasons.append("high vulnerabilities require review")
     if policy_input.medium_vulnerabilities:
@@ -82,10 +95,10 @@ def evaluate_fallback(policy_input: PolicyInput) -> PolicyResult:
         quarantine_reasons.append("dependency manifest coverage requires review")
     if reject_reasons:
         decision = Decision.REJECT
-        reasons = tuple(reject_reasons)
+        reasons = tuple(sorted(reject_reasons))
     elif quarantine_reasons:
         decision = Decision.QUARANTINE
-        reasons = tuple(quarantine_reasons)
+        reasons = tuple(sorted(quarantine_reasons))
     else:
         decision = Decision.ALLOW
         reasons = ("all mandatory controls passed",)
@@ -125,14 +138,26 @@ def evaluate_opa(policy_input: PolicyInput, opa_binary: str = "opa") -> PolicyRe
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             raise PolicyEvaluationError("OPA evaluation failed") from exc
-    payload = json.loads(result.stdout)
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise PolicyEvaluationError("OPA returned malformed JSON") from exc
     try:
         value = payload["result"][0]["expressions"][0]["value"]
         decision = Decision(value["decision"])
-        reasons = tuple(str(item) for item in value["reasons"])
+        raw_reasons = value["reasons"]
+        if (
+            not isinstance(raw_reasons, list)
+            or not raw_reasons
+            or not all(isinstance(item, str) for item in raw_reasons)
+        ):
+            raise TypeError("invalid policy reasons")
+        reasons = tuple(raw_reasons)
         version = str(value["policy_version"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise PolicyEvaluationError("OPA returned an invalid decision document") from exc
+    if version != POLICY_VERSION or reasons != tuple(sorted(reasons)):
+        raise PolicyEvaluationError("OPA returned an incompatible decision document")
     return PolicyResult(decision=decision, reasons=reasons, engine="opa", policy_version=version)
 
 
@@ -141,9 +166,21 @@ def evaluate_policy(
 ) -> PolicyResult:
     if engine == "fallback":
         return evaluate_fallback(policy_input)
+    fallback = evaluate_fallback(policy_input)
+
+    def evaluate_with_parity() -> PolicyResult:
+        opa = evaluate_opa(policy_input)
+        if (
+            opa.decision != fallback.decision
+            or opa.reasons != fallback.reasons
+            or opa.policy_version != fallback.policy_version
+        ):
+            raise PolicyEvaluationError("OPA and fallback policy decisions diverged")
+        return opa
+
     if engine == "opa":
-        return evaluate_opa(policy_input)
+        return evaluate_with_parity()
     try:
-        return evaluate_opa(policy_input)
+        return evaluate_with_parity()
     except PolicyEvaluationError:
-        return evaluate_fallback(policy_input)
+        return fallback

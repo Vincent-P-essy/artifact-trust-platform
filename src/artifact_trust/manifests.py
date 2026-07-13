@@ -94,16 +94,24 @@ def _parse_package_lock(
     root: Path, relative: str
 ) -> tuple[list[Component], list[DependencyEdge], list[str], list[str]]:
     data = json.loads((root / relative).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return [], [], [], [f"{relative}: lockfile root must be an object"]
+    lockfile_version = data.get("lockfileVersion")
+    if lockfile_version not in (2, 3):
+        return [], [], [], [f"{relative}: only package-lock v2/v3 are supported"]
     packages = data.get("packages")
     if not isinstance(packages, dict):
         return [], [], [], [f"{relative}: only package-lock v2/v3 packages maps are supported"]
     root_entry = packages.get("")
     direct_names: set[str] = set()
+    warnings: list[str] = []
     if isinstance(root_entry, dict):
         for section in ("dependencies", "devDependencies", "optionalDependencies"):
             values = root_entry.get(section)
             if isinstance(values, dict):
                 direct_names.update(str(name) for name in values)
+    else:
+        warnings.append(f"{relative}: package-lock root package entry is missing")
     path_entries = {
         str(package_path): entry
         for package_path, entry in packages.items()
@@ -116,7 +124,6 @@ def _parse_package_lock(
             components_by_path[package_path] = component
 
     edges: set[tuple[str, str]] = set()
-    warnings: list[str] = []
     for name in sorted(direct_names):
         resolved = _resolve_npm_dependency("", name, set(path_entries))
         if resolved and resolved in components_by_path:

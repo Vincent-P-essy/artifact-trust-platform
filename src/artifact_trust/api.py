@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from artifact_trust import __version__
@@ -79,16 +79,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except JobError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.get("/api/v1/jobs/{job_id}/report.html", response_class=FileResponse)
-    def get_html_report(job_id: str) -> FileResponse:
-        record = queue.get(job_id)
-        if record is None or record.state != "completed" or not record.result_path:
-            raise HTTPException(status_code=409, detail="job has no completed result")
-        report_path = (configuration.work_root / record.result_path).resolve()
-        html_path = report_path.with_name("report.html")
-        if not html_path.is_relative_to(configuration.work_root) or not html_path.is_file():
-            raise HTTPException(status_code=404, detail="HTML report not found")
-        return FileResponse(html_path, media_type="text/html")
+    @app.get("/api/v1/jobs/{job_id}/report.html", response_class=HTMLResponse)
+    def get_html_report(job_id: str) -> HTMLResponse:
+        try:
+            content = queue.html_result(job_id)
+        except JobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return HTMLResponse(
+            content,
+            headers={
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+            },
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:
