@@ -2,8 +2,7 @@
   "captured_at": "2026-07-13",
   "command": "ATP_WORK_ROOT=/tmp/artifact-trust-benchmark-work ATP_PRIVATE_KEY=tests/keys/test-signing-key.pem ATP_PUBLIC_KEY=tests/keys/test-verification-key.pem artifact-trust benchmark safe-app --iterations 20 --warmups 2",
   "environment": {
-    "base_commit": "0397184100ab2ce1a0d8c2b26809df28b63594a7",
-    "branch": "agent/harden-artifact-trust-evidence",
+    "commit": "1b3f8a374e35d3321bacb591cf1a31d9fae006e0",
     "cpu": "11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz",
     "kernel": "Linux 5.15.0-185-generic",
     "machine": "x86_64",
@@ -11,8 +10,9 @@
     "repository_tree_excludes": [
       "benchmarks/baseline.json"
     ],
-    "repository_tree_sha256": "262028256a36d23c5b3bd41d10d64e7b74454008e42011c9022fd76e5c5f4cb3",
+    "repository_tree_sha256": "2422e110dd7d4a725f149743cf3102d69401bcc99250d580394b1b9555e70ed9",
     "source_identity": "full repository tree hash excluding this self-referential metrics file",
+    "source_state": "clean",
     "uv": "0.11.23"
   },
   "metrics": {
@@ -20,11 +20,11 @@
     "decision": "ALLOW",
     "finding_count": 0,
     "iterations": 20,
-    "max_ms": 5.612,
-    "mean_ms": 3.821,
-    "min_ms": 3.37,
-    "p50_ms": 3.53,
-    "p95_ms": 4.635,
+    "max_ms": 6.076,
+    "mean_ms": 3.644,
+    "min_ms": 3.26,
+    "p50_ms": 3.435,
+    "p95_ms": 4.494,
     "schema_version": "1.0",
     "warmups": 2
   },

@@ -115,17 +115,17 @@ component count, finding count and decision. Host, filesystem cache and runtime 
 the numbers are performance observations, not signed evidence.
 
 The 2026-07-13 baseline ran 20 measured iterations after two warmups on Python 3.12.13, Linux
-5.15.0 and an 11th Gen Intel Core i3-1115G4. The hardened pipeline observed p50 3.530 ms and p95
-4.635 ms. The prior source-state observation was p50 2.501 ms and p95 3.293 ms; the new run adds
-1.029 ms at p50 in this single-host comparison. That delta includes the immutable snapshot and
+5.15.0 and an 11th Gen Intel Core i3-1115G4. The hardened pipeline observed p50 3.435 ms and p95
+4.494 ms. The prior source-state observation was p50 2.501 ms and p95 3.293 ms; the new run adds
+0.934 ms at p50 in this single-host comparison. That delta includes the immutable snapshot and
 multi-file evidence work together and is not an isolated causal benchmark or portable capacity
 claim.
 
 The baseline binds this observation to a SHA-256 over the sorted path-and-content hashes of every
 tracked or non-ignored repository file, excluding only `benchmarks/baseline.json` to avoid a
 self-reference. That content identity remains verifiable after the candidate is committed and is
-more precise than publishing a bare `dirty=true` flag. A release benchmark should additionally
-record the final clean commit identifier.
+more precise than publishing a bare `dirty=true` flag. The checked-in release observation also
+records the clean source commit from which it was measured.
 
 ## Reproduction gates
 

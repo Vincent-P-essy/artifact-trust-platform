@@ -185,8 +185,8 @@ uv run pytest --cov=artifact_trust --cov-report=term-missing
 
 The measured numbers depend on the host; the command records iterations, p50, p95, mean,
 minimum and maximum. `benchmarks/baseline.json` records one dated run with its host and source
-context. On that machine, the hardened three-file fixture pipeline measured p50 3.530 ms and p95
-4.635 ms over 20 measured runs after two warmups. This is not a production-capacity claim. Golden
+context. On that machine, the hardened three-file fixture pipeline measured p50 3.435 ms and p95
+4.494 ms over 20 measured runs after two warmups. This is not a production-capacity claim. Golden
 tests separately prove byte reproducibility with a fixed key.
 
 ## Documentation
