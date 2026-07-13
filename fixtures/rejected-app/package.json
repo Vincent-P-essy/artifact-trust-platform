@@ -1,0 +1,8 @@
+{
+  "name": "rejected-app",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "fixture-critical-lib": "1.0.0"
+  }
+}

@@ -1,0 +1,67 @@
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: artifact-trust-platform:local
+    command: ["artifact-trust", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      ATP_ALLOW_NETWORK: "0"
+      ATP_WORK_ROOT: /var/lib/artifact-trust
+      ATP_FIXTURES_ROOT: /app/fixtures
+    ports:
+      - "127.0.0.1:${ATP_PORT:-8000}:8000"
+    volumes:
+      - artifact-trust-data:/var/lib/artifact-trust
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.50
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    image: artifact-trust-platform:local
+    build:
+      context: .
+      target: runtime
+    command: ["artifact-trust", "worker", "--poll-seconds", "1"]
+    environment:
+      ATP_ALLOW_NETWORK: "0"
+      ATP_WORK_ROOT: /var/lib/artifact-trust
+      ATP_FIXTURES_ROOT: /app/fixtures
+      ATP_CPU_SECONDS: "30"
+      ATP_MEMORY_MB: "512"
+      ATP_MAX_PIDS: "64"
+    volumes:
+      - artifact-trust-data:/var/lib/artifact-trust
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+    network_mode: none
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 768m
+    cpus: 1.00
+    restart: unless-stopped
+
+volumes:
+  artifact-trust-data:

@@ -1,0 +1,22 @@
+{
+  "rejected-app": {
+    "decision": "REJECT",
+    "finding_count": 3,
+    "risk_score": 10
+  },
+  "safe-app": {
+    "decision": "ALLOW",
+    "finding_count": 0,
+    "risk_score": 100
+  },
+  "unpinned-app": {
+    "decision": "REJECT",
+    "finding_count": 1,
+    "risk_score": 80
+  },
+  "vulnerable-app": {
+    "decision": "QUARANTINE",
+    "finding_count": 1,
+    "risk_score": 85
+  }
+}

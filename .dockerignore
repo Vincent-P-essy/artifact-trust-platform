@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.artifact-trust
+.coverage
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+attack-out
+build
+dist
+docs
+out
+tests

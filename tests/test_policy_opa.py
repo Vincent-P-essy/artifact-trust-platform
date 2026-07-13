@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from artifact_trust.errors import PolicyEvaluationError
+from artifact_trust.models import PolicyInput
+from artifact_trust.policy import evaluate_opa
+
+
+def _input() -> PolicyInput:
+    return PolicyInput(
+        source_pinned=True,
+        signature_valid=True,
+        artifact_digest_valid=True,
+        secrets=0,
+        critical_vulnerabilities=0,
+        high_vulnerabilities=0,
+        medium_vulnerabilities=0,
+        disallowed_licenses=0,
+        unknown_licenses=0,
+        unpinned_dependencies=0,
+    )
+
+
+def test_opa_adapter_parses_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "result": [
+            {
+                "expressions": [
+                    {
+                        "value": {
+                            "decision": "ALLOW",
+                            "reasons": ["all mandatory controls passed"],
+                            "policy_version": "2026-07-12.1",
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr("artifact_trust.policy.shutil.which", lambda _: "/usr/bin/opa")
+    monkeypatch.setattr(
+        "artifact_trust.policy.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(payload)),
+    )
+    result = evaluate_opa(_input())
+    assert result.engine == "opa"
+    assert result.decision.value == "ALLOW"
+
+
+def test_opa_adapter_rejects_invalid_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifact_trust.policy.shutil.which", lambda _: "/usr/bin/opa")
+    monkeypatch.setattr(
+        "artifact_trust.policy.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(stdout="{}"),
+    )
+    with pytest.raises(PolicyEvaluationError, match="invalid decision"):
+        evaluate_opa(_input())
+
+
+def test_opa_adapter_fails_closed_on_process_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifact_trust.policy.shutil.which", lambda _: "/usr/bin/opa")
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise subprocess.CalledProcessError(1, ["opa"])
+
+    monkeypatch.setattr("artifact_trust.policy.subprocess.run", fail)
+    with pytest.raises(PolicyEvaluationError, match="failed"):
+        evaluate_opa(_input())

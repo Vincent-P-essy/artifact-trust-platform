@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "artifact-trust-platform"
+version = "0.1.0"
+description = "Deterministic software supply-chain evidence and policy engine"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+authors = [{ name = "Vincent Plessy" }]
+dependencies = [
+  "cryptography>=45.0.0,<47.0.0",
+  "fastapi>=0.115.0,<1.0.0",
+  "packaging>=24.2,<27.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "typer>=0.15.0,<1.0.0",
+  "uvicorn[standard]>=0.34.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2>=2.5.0,<3.0.0",
+  "mypy>=1.15.0,<2.0.0",
+  "pytest>=8.3.0,<10.0.0",
+  "pytest-cov>=6.0.0,<8.0.0",
+  "ruff>=0.11.0,<1.0.0",
+]
+
+[project.scripts]
+artifact-trust = "artifact_trust.cli:app"
+artifact-trust-worker = "artifact_trust.cli:worker_entrypoint"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/artifact_trust"]
+
+[tool.hatch.build]
+include = ["src/artifact_trust/**/*.py", "src/artifact_trust/data/*.json", "src/artifact_trust/data/*.rego", "src/artifact_trust/static/*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --disable-warnings"
+testpaths = ["tests"]
+markers = ["integration: multi-component tests", "e2e: command and process boundary tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["artifact_trust"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 85
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = [
+  "B008",  # Typer uses descriptors in function defaults by design.
+  "E501",  # The formatter owns wrapping; URLs and evidence strings stay intact.
+  "S101",  # Assertions are valid in tests and internal invariants.
+  "S108",  # The default work root is created mode 0700 and is configurable.
+  "S603",  # All subprocess argument vectors are fixed or separately validated.
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[tool.uv]
+package = true

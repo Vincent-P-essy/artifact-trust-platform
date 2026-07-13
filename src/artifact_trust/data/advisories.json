@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "snapshot": "2026-07-12",
+  "advisories": [
+    {
+      "id": "GHSA-35jh-r3h4-6jhm",
+      "aliases": ["CVE-2021-23337"],
+      "ecosystem": "npm",
+      "package": "lodash",
+      "affected": "<4.17.21",
+      "severity": "high",
+      "summary": "Command injection in vulnerable lodash template use",
+      "remediation": "Upgrade lodash to 4.17.21 or later"
+    },
+    {
+      "id": "ATP-FIXTURE-0001",
+      "aliases": [],
+      "ecosystem": "npm",
+      "package": "fixture-critical-lib",
+      "affected": "<2.0.0",
+      "severity": "critical",
+      "summary": "Synthetic advisory used only by deterministic fixtures",
+      "remediation": "Upgrade fixture-critical-lib to 2.0.0 or later"
+    }
+  ]
+}

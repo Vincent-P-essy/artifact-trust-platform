@@ -1,0 +1,25 @@
+{
+  "captured_at": "2026-07-12",
+  "command": "artifact-trust benchmark safe-app --iterations 20 --warmups 2",
+  "environment": {
+    "cpu": "11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz",
+    "kernel": "Linux 5.15.0-185-generic",
+    "machine": "x86_64",
+    "python": "3.12.13",
+    "source_state": "uncommitted working tree",
+    "uv": "0.11.23"
+  },
+  "metrics": {
+    "component_count": 2,
+    "decision": "ALLOW",
+    "finding_count": 0,
+    "iterations": 20,
+    "max_ms": 3.408,
+    "mean_ms": 2.654,
+    "min_ms": 2.39,
+    "p50_ms": 2.501,
+    "p95_ms": 3.293,
+    "schema_version": "1.0",
+    "warmups": 2
+  }
+}

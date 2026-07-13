@@ -1,0 +1,10 @@
+{
+  "component_count": 2,
+  "decision": "ALLOW",
+  "edge_count": 2,
+  "finding_count": 0,
+  "manifests": [
+    "package-lock.json"
+  ],
+  "transitive_component": "transitive-lib"
+}
