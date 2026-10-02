@@ -1,0 +1,4 @@
+$ artifact-trust analyze safe-app --output ./runtime/artifact-example --kind fixture
+{"decision": "ALLOW", "output": "./runtime/artifact-example", "report_id": "atr-5218162a221139d9c1f85378"}
+
+Exit: 0
