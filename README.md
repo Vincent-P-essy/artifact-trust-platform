@@ -4,12 +4,6 @@ Artifact Trust Platform turns a local fixture or a validated, commit-pinned HTTP
 repository into evidence that a publication gate can verify. The default pipeline is
 offline, deterministic, and deliberately does not execute repository code.
 
-## Execution preview
-
-![artifact-trust-platform execution](docs/screenshots/execution.png)
-
-Local execution of `artifact-trust analyze safe-app --output ./runtime/artifact-example --kind fixture`. The input and output shown come from the repository example or test fixtures. [Verification](docs/verification.md).
-
 ## What works
 
 - safe source acquisition: named fixtures, allowlisted local roots, or HTTPS Git with an
